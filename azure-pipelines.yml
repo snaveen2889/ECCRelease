@@ -1,0 +1,86 @@
+# PHP as Linux Web App on Azure
+# Build, package and deploy your PHP project to Azure Linux Web App.
+# Add steps that run tests and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/php
+
+variables:
+  # Azure Resource Manager connection created during pipeline creation
+  azureSubscription: 'd1fb142e-76c5-4792-8183-0f12ec15588b'
+
+  # Web app name
+  #webAppName: 'nix-development'
+
+  # Agent VM image name
+  vmImageName: 'ubuntu-18.04'
+
+  # Environment name
+  #environmentName: 'nix-development'
+
+  # Root folder under which your composer.json file is available.
+  rootFolder: $(System.DefaultWorkingDirectory)
+
+stages:
+- stage: Build
+  displayName: Build stage
+  variables:
+    phpVersion: '7.3'
+    eccversion: '2.11.7'
+  jobs:
+  - job: BuildJob
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - script: |
+        sudo update-alternatives --set php /usr/bin/php$(phpVersion)
+        sudo update-alternatives --set phar /usr/bin/phar$(phpVersion)
+        sudo update-alternatives --set phpdbg /usr/bin/phpdbg$(phpVersion)
+        sudo update-alternatives --set php-cgi /usr/bin/php-cgi$(phpVersion)
+        sudo update-alternatives --set phar.phar /usr/bin/phar.phar$(phpVersion)
+        php -version
+      workingDirectory: $(rootFolder)
+      displayName: 'Use PHP version $(phpVersion)'
+
+
+    - task: Bash@3
+      inputs:
+        targetType: 'inline'
+        script: |
+          sudo mkdir /home/vsts/.composer/
+          sudo cat > /home/vsts/.composer/auth.json << "EOF"
+              {
+                  "http-basic": {
+                      "repo.magento.com": {
+                          "username": "9e16d217f179040c9964bcdd4d0a461d",
+                          "password": "73943ce1fa7ad70c1ea216dc5bc9b666"
+                      },
+                      "update.epicorcommerce.com": {
+                          "username": "ecc2release",
+                          "password": "EpicorViolin1234!?"
+                      }
+                  }
+              }
+          EOF
+
+        workingDirectory: $(rootFolder)
+    - script: |
+       curl -sS https://getcomposer.org/installer -o composer-setup.php
+       php composer-setup.php --filename=composer --version=1.10.7
+       sudo mv ./composer-setup.php /usr/local/bin/composer
+       php composer config repositories.repo-name composer http://ecc2testreleases.epicorcommerce.com/releases/
+       php composer remove --dev friendsofphp/php-cs-fixer
+       php composer require epicor/ecc $(eccversion) epicor/module-accessright $(eccversion) epicor/module-b2b $(eccversion) epicor/module-branchpickup $(eccversion) epicor/module-comm $(eccversion) epicor/module-common $(eccversion) epicor/module-components $(eccversion) epicor/module-cre $(eccversion) epicor/module-customerconnect $(eccversion) epicor/module-database $(eccversion) epicor/module-dealerconnect $(eccversion) epicor/module-elements $(eccversion) epicor/module-esdm $(eccversion) epicor/module-faqs $(eccversion) epicor/module-lists $(eccversion) epicor/module-orderapproval $(eccversion) epicor/module-pay $(eccversion) epicor/module-quickorderpad $(eccversion) epicor/module-quotes $(eccversion) epicor/module-release-notification $(eccversion) epicor/module-reports $(eccversion) epicor/module-salesrep $(eccversion) epicor/module-search $(eccversion) epicor/module-supplierconnect $(eccversion) epicor/module-telemetry $(eccversion) epicor/module-udexample $(eccversion)
+      
+
+    - task: ArchiveFiles@2
+      displayName: 'Archive files'
+      inputs:
+        rootFolderOrFile: '$(rootFolder)'
+        includeRootFolder: false
+        archiveType: zip
+        archiveFile: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
+        replaceExistingArchive: true
+
+    - upload: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
+      displayName: 'Upload package'
+      artifact: ECC$(eccversion)
+
